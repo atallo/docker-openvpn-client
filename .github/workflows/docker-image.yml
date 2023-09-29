@@ -34,12 +34,12 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            docker.io/${{ github.repository_owner }}/docker-openvpn-client:latest
-            docker.io/${{ github.repository_owner }}/docker-openvpn-client:${{ steps.vars.outputs.sha_short }}
+            docker.io/${{ secrets.DOCKER_USER }}/docker-openvpn-client:latest
+            docker.io/${{ secrets.DOCKER_USER }}/docker-openvpn-client:${{ steps.vars.outputs.sha_short }}
       - name: Update Docker Hub Description
         uses: peter-evans/dockerhub-description@v3
         with:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-          repository: ${{ github.repository_owner }}/docker-openvpn-client
+          repository: ${{ secrets.DOCKER_USER }}/docker-openvpn-client
           readme-filepath: ./README.md
