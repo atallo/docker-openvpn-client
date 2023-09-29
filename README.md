@@ -3,7 +3,7 @@
 Forked from https://github.com/wfg/docker-openvpn-client to meet custom needs.
 
 ## What is this and what does it do?
-[`ghcr.io/jesusdf/openvpn-client`](https://github.com/users/jesusdf/packages/container/package/openvpn-client) is a containerized OpenVPN client.
+[`ghcr.io/atallo/openvpn-client`](https://github.com/users/atallo/packages/container/package/openvpn-client) is a containerized OpenVPN client.
 It has a kill switch built with `iptables` that kills Internet connectivity to the container if the VPN tunnel goes down for any reason.
 
 This image requires you to supply the necessary OpenVPN configuration file(s).
@@ -21,12 +21,12 @@ You can either pull it from GitHub Container Registry or build it yourself.
 
 To pull it from GitHub Container Registry, run
 ```
-docker pull ghcr.io/jesusdf/openvpn-client
+docker pull ghcr.io/atallo/openvpn-client
 ```
 
 To build it yourself, run
 ```
-docker build -t ghcr.io/jesusdf/openvpn-client https://github.com/jesusdf/docker-openvpn-client.git#:build
+docker build -t ghcr.io/atallo/openvpn-client https://github.com/atallo/docker-openvpn-client.git#:build
 ```
 
 ### Creating and running a container
@@ -41,14 +41,14 @@ docker run --detach \
   --cap-add=NET_ADMIN \
   --device=/dev/net/tun \
   --volume <path/to/config/dir>:/config \
-  ghcr.io/jesusdf/openvpn-client
+  ghcr.io/atallo/openvpn-client
 ```
 
 #### `docker-compose`
 ```yaml
 services:
   openvpn-client:
-    image: ghcr.io/jesusdf/openvpn-client
+    image: ghcr.io/atallo/openvpn-client
     container_name: openvpn-client
     cap_add:
       - NET_ADMIN
@@ -105,7 +105,7 @@ ports:
 In both cases, replace `<host_port>` and `<container_port>` with the port used by your connected container.
 
 ### Verifying functionality
-Once you have container running `ghcr.io/jesusdf/openvpn-client`, run the following command to spin up a temporary container using `openvpn-client` for networking.
+Once you have container running `ghcr.io/atallo/openvpn-client`, run the following command to spin up a temporary container using `openvpn-client` for networking.
 The `wget -qO - ifconfig.me` bit will return the public IP of the container (and anything else using `openvpn-client` for networking).
 You should see an IP address owned by your VPN provider.
 ```

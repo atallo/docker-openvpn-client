@@ -1,6 +1,6 @@
 services:
   openvpn-client:
-    image: jesusdf/docker-openvpn-client:latest
+    image: atallo/docker-openvpn-client:latest
     container_name: openvpn-client
     cap_add:
       - NET_ADMIN
