@@ -9,8 +9,7 @@ RUN apk add --no-cache \
               python3 \
               tzdata \
               curl \
-    && rm -f  /sbin/apk \
-              /usr/sbin/sendmail \
+    && rm -f  /usr/sbin/sendmail \
               /usr/bin/nc
 
 COPY . /usr/local/bin
