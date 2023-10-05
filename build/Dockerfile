@@ -8,6 +8,7 @@ RUN apk add --no-cache \
               openvpn \
               python3 \
               tzdata \
+              curl \
     && rm -f  /sbin/apk \
               /usr/sbin/sendmail \
               /usr/bin/nc
