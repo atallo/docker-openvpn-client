@@ -9,9 +9,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  # Mantiene el nombre "openvpn-client" que ya usa el README/los paquetes.
-  # Si prefieres que coincida con el nombre del repo, usa: ${{ github.repository }}
-  IMAGE_NAME: ${{ github.repository_owner }}/openvpn-client
+  # Usa el nombre del repositorio: ghcr.io/atallo/docker-openvpn-client
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-push:

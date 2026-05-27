@@ -3,7 +3,7 @@
 Forked from https://github.com/wfg/docker-openvpn-client to meet custom needs.
 
 ## What is this and what does it do?
-[`ghcr.io/atallo/openvpn-client`](https://github.com/users/atallo/packages/container/package/openvpn-client) is a containerized OpenVPN client.
+[`ghcr.io/atallo/docker-openvpn-client`](https://github.com/users/atallo/packages/container/package/docker-openvpn-client) is a containerized OpenVPN client.
 It has a kill switch built with `iptables` that kills Internet connectivity to the container if the VPN tunnel goes down for any reason.
 
 This image requires you to supply the necessary OpenVPN configuration file(s).
@@ -21,12 +21,12 @@ You can either pull it from GitHub Container Registry or build it yourself.
 
 To pull it from GitHub Container Registry, run
 ```
-docker pull ghcr.io/atallo/openvpn-client
+docker pull ghcr.io/atallo/docker-openvpn-client
 ```
 
 To build it yourself, run
 ```
-docker build -t ghcr.io/atallo/openvpn-client https://github.com/atallo/docker-openvpn-client.git#:build
+docker build -t ghcr.io/atallo/docker-openvpn-client https://github.com/atallo/docker-openvpn-client.git#:build
 ```
 
 ### Creating and running a container
@@ -41,14 +41,14 @@ docker run --detach \
   --cap-add=NET_ADMIN \
   --device=/dev/net/tun \
   --volume <path/to/config/dir>:/config \
-  ghcr.io/atallo/openvpn-client
+  ghcr.io/atallo/docker-openvpn-client
 ```
 
 #### `docker-compose`
 ```yaml
 services:
   openvpn-client:
-    image: ghcr.io/atallo/openvpn-client
+    image: ghcr.io/atallo/docker-openvpn-client
     container_name: openvpn-client
     cap_add:
       - NET_ADMIN
@@ -105,63 +105,37 @@ ports:
 In both cases, replace `<host_port>` and `<container_port>` with the port used by your connected container.
 
 ### Verifying functionality
-Once you have container running `ghcr.io/atallo/openvpn-client`, run the following command to spin up a temporary container using `openvpn-client` for networking.
+Once you have container running `ghcr.io/atallo/docker-openvpn-client`, run the following command to spin up a temporary container using `openvpn-client` for networking.
 The `wget -qO - ifconfig.me` bit will return the public IP of the container (and anything else using `openvpn-client` for networking).
 You should see an IP address owned by your VPN provider.
 ```
 docker run --rm -it --network=container:openvpn-client alpine wget -qO - ifconfig.me
 ```
 
-### Running a recurring request (e.g. `curl` every 5 minutes)
+### Using a healthcheck to verify a website is up
 
-A common need is to hit a URL periodically *through the VPN tunnel* (a heartbeat/monitoring ping, a dynamic DNS update, keeping a session alive, etc.). There are three ways to do it, depending on what fits your setup.
+Because the image already ships with `curl`, you can use Docker's healthcheck mechanism to periodically check that a website is reachable *through the VPN tunnel*. Docker runs the healthcheck command on a fixed interval and uses its exit code to mark the container as `healthy` or `unhealthy`, so the container's health doubles as an up/down monitor for the target site.
 
-#### Option 1 — Sidecar container (recommended)
-
-Run a tiny companion container that uses `openvpn-client`'s network stack, so every request goes through the tunnel. The VPN image is left untouched. Add this service next to `openvpn-client` in your Compose file:
-
-```yaml
-  curl-cron:
-    image: curlimages/curl:latest
-    container_name: curl-cron
-    depends_on:
-      - openvpn-client
-    network_mode: service:openvpn-client   # share openvpn-client's network → traffic uses the VPN
-    restart: unless-stopped
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        while true; do
-          curl -fsS https://example.com/ping || echo "curl failed"
-          sleep 300   # 5 minutes
-        done
-```
-
-Because it shares the network namespace, the sidecar stops if `openvpn-client` restarts; `restart: unless-stopped` brings it back automatically. To confirm the request is going out through the VPN, you can temporarily replace the URL with `https://ifconfig.me` and check the logs with `docker logs curl-cron` — the IP shown should be your VPN provider's.
-
-#### Option 2 — Compose healthcheck (no extra container)
-
-The image already ships with `curl`, so you can reuse Docker's healthcheck mechanism, which runs a command on a fixed interval. Add this to the `openvpn-client` service definition:
+Add a `healthcheck` block to the `openvpn-client` service in your Compose file:
 
 ```yaml
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "https://example.com/ping"]
-      interval: 5m
-      timeout: 30s
-      retries: 3
+      # curl fails (non-zero exit) if the site is unreachable or returns an HTTP error,
+      # which marks the container unhealthy.
+      test: ["CMD", "curl", "-fsS", "https://example.com"]
+      interval: 5m       # how often to check
+      timeout: 30s       # fail the check if curl takes longer than this
+      retries: 3         # consecutive failures before the container is marked unhealthy
+      start_period: 30s  # grace period on startup before failures count
 ```
 
-Note that this doubles as the container's health status: if the request fails, the container is marked `unhealthy`. Use this only if the endpoint is a meaningful health indicator (or if you don't mind it driving health state).
+Replace `https://example.com` with the URL you want to monitor. The `-f` flag makes `curl` return a non-zero exit code on HTTP errors (4xx/5xx), `-sS` keeps it quiet but still prints errors. Because the check runs inside the `openvpn-client` container, the request goes out through the VPN tunnel.
 
-#### Option 3 — Host cron + `docker exec`
-
-If you'd rather schedule it from the host, add a line to the host's crontab. The command runs *inside* the container, so it also goes through the VPN and reuses the bundled `curl`:
+You can see the current status in the `STATUS` column of `docker ps` (it shows `(healthy)` / `(unhealthy)`), or inspect the detailed results, including the last check's output, with:
 
 ```
-*/5 * * * * docker exec openvpn-client curl -fsS https://example.com/ping >/dev/null 2>&1
+docker inspect --format '{{json .State.Health}}' openvpn-client
 ```
-
-In all three cases, replace `https://example.com/ping` with your target URL.
 
 ### Troubleshooting
 #### VPN authentication
