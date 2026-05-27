@@ -5,7 +5,7 @@ set -o nounset
 set -o pipefail
 
 cleanup() {
-    kill TERM "$openvpn_pid"
+    kill -TERM "$openvpn_pid"
     exit 0
 }
 
@@ -14,7 +14,7 @@ is_enabled() {
 }
 
 # Either a specific file name or a pattern.
-if [[ $CONFIG_FILE ]]; then
+if [[ ${CONFIG_FILE:-} ]]; then
     config_file=$(find /config -name "$CONFIG_FILE" 2> /dev/null | sort | shuf -n 1)
 else
     config_file=$(find /config -name '*.conf' -o -name '*.ovpn' 2> /dev/null | sort | shuf -n 1)
@@ -27,8 +27,10 @@ fi
 
 echo "using openvpn configuration file: $config_file"
 
-cp /usr/share/zoneinfo/${TZ} /etc/localtime
-echo "${TZ}" >  /etc/timezone
+if [[ ${TZ:-} ]]; then
+    cp "/usr/share/zoneinfo/${TZ}" /etc/localtime
+    echo "${TZ}" > /etc/timezone
+fi
 
 openvpn_args=(
     "--config" "$config_file"
@@ -36,13 +38,13 @@ openvpn_args=(
 )
 
 if is_enabled "$KILL_SWITCH"; then
-    openvpn_args+=("--route-up" "/usr/local/bin/killswitch.sh $ALLOWED_SUBNETS")
+    openvpn_args+=("--route-up" "/usr/local/bin/killswitch.sh ${ALLOWED_SUBNETS:-}")
 fi
 
 # Docker secret that contains the credentials for accessing the VPN.
-if [[ $AUTH_SECRET ]]; then
+if [[ ${AUTH_SECRET:-} ]]; then
     
-    if [[ "$TOTP_KEY" != "" ]]; then
+    if [[ "${TOTP_KEY:-}" != "" ]]; then
 
         # Original user and password
         USER=$( cat /run/secrets/$AUTH_SECRET | head -n 1 | tr -d '\r' | tr -d '\n' )

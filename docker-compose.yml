@@ -1,6 +1,6 @@
 services:
   openvpn-client:
-    image: atallo/docker-openvpn-client:latest
+    image: ghcr.io/atallo/openvpn-client:latest
     container_name: openvpn-client
     cap_add:
       - NET_ADMIN
