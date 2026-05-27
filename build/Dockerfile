@@ -5,6 +5,7 @@ RUN apk add --no-cache \
               bind-tools \
               iptables \
               ip6tables \
+              nftables \
               openvpn \
               python3 \
               tzdata \
