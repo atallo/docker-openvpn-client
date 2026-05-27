@@ -11,13 +11,19 @@ services:
       - ALLOWED_SUBNETS=192.168.10.0/24
       # OpenVPN config file to use (within /config).
       - CONFIG_FILE=client.ovpn
-      # Port forwarding into the VPN, handled by portforward.sh (nftables).
+      # Port forwarding into the VPN, handled automatically when set:
+      # the entrypoint wires portforward.sh (nftables) as the OpenVPN "up" script
+      # and enables ip_forward, so the .ovpn file does NOT need editing.
       # Format: <proto>:<listen_port>:<dest_ip>[:<dest_port>], space/comma separated.
       # proto = tcp | udp | both. See README for details.
       - PORT_FORWARDS=both:3389:10.160.150.220
-    # Required for the DNAT/masquerade port forwarding to actually route.
-    sysctls:
-      - net.ipv4.ip_forward=1
+    # ip_forward is enabled automatically by the entrypoint when PORT_FORWARDS is
+    # set. If your runtime forbids writing it at runtime, enable it here instead:
+    # sysctls:
+    #   - net.ipv4.ip_forward=1
+    ports:
+      - 3389:3389/tcp
+      - 3389:3389/udp
     volumes:
       - ./local:/config
     restart: unless-stopped

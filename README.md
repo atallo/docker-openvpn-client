@@ -86,7 +86,7 @@ Compose has support for [Docker secrets](https://docs.docker.com/engine/swarm/se
 See the [Compose file](docker-compose.yml) in this repository for example usage of passing proxy credentials as Docker secrets.
 
 ### Port forwarding into the VPN
-You can forward one or more ports from the container to a host that lives *behind* the VPN tunnel (for example, reaching an RDP machine on the remote network). This is handled by `portforward.sh` using **nftables** (the modern `nft` command), and it is configured entirely from `docker-compose` through the `PORT_FORWARDS` variable.
+You can forward one or more ports from the container to a host that lives *behind* the VPN tunnel (for example, reaching an RDP machine on the remote network). This is handled by `portforward.sh` using **nftables** (the modern `nft` command) and is driven entirely from `docker-compose` through the `PORT_FORWARDS` variable.
 
 Each forward is written as `<proto>:<listen_port>:<dest_ip>[:<dest_port>]`:
 
@@ -99,21 +99,23 @@ For example, to forward TCP+UDP 3389 to a machine at `10.160.150.220` behind the
 ```yaml
     environment:
       - PORT_FORWARDS=both:3389:10.160.150.220
-    sysctls:
-      - net.ipv4.ip_forward=1
     ports:
       - 3389:3389/tcp
       - 3389:3389/udp
 ```
 
-Three things are needed for it to work end to end. First, IP forwarding must be enabled inside the container, which is what the `net.ipv4.ip_forward=1` sysctl above does. Second, the listen port has to actually reach the container, so publish it with `ports:` (as shown) or connect from a container sharing this network stack. Third, the script has to run once the tunnel is up, so add it to your OpenVPN configuration file as an `up` script:
+Setting `PORT_FORWARDS` is all that is required. The entrypoint does the rest automatically: it enables `net.ipv4.ip_forward`, and it runs OpenVPN on a copy of your configuration file with `portforward.sh` wired in as the `up` script. Any `up` or `script-security` directives already present in your `.ovpn` are stripped from that copy and ignored, so **you do not need to edit your configuration file**. Your original file under `/config` is left untouched.
 
-```
-script-security 2
-up /usr/local/bin/portforward.sh
-```
+The only thing you still need to do is make the listen port reachable, by publishing it with `ports:` (as shown) or by connecting from a container that shares this network stack.
 
 On each (re)connect the script rebuilds its own `ip nat` table from scratch, so rules never pile up. It masquerades traffic leaving through the VPN interface (`VPN_INTERFACE`, defaulting to OpenVPN's `$dev`) so replies from the destination return correctly. Only IPv4 destinations are supported.
+
+If your container runtime does not allow enabling `ip_forward` from inside the container, set it from Compose instead:
+
+```yaml
+    sysctls:
+      - net.ipv4.ip_forward=1
+```
 
 ### Using with other containers
 Once you have your `openvpn-client` container up and running, you can tell other containers to use `openvpn-client`'s network stack which gives them the ability to utilize the VPN tunnel.

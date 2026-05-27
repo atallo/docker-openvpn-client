@@ -15,6 +15,8 @@ RUN apk add --no-cache \
 
 COPY . /usr/local/bin
 
+RUN chmod +x /usr/local/bin/*.sh /usr/local/bin/*.py
+
 ENV KILL_SWITCH=on
 
 ENTRYPOINT [ "entry.sh" ]
