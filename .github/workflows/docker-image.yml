@@ -44,6 +44,8 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          labels: |
+            org.opencontainers.image.description=OpenVPN client container with userspace port forwarding (socat) and an optional nftables kill switch.
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch
@@ -61,5 +63,10 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Disable provenance/SBOM attestations: they show up in the manifest
+          # list as "unknown/unknown" entries on GHCR and stop its UI from
+          # reading the description label. Re-enable if you need SLSA provenance.
+          provenance: false
+          sbom: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
