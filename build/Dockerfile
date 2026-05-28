@@ -20,3 +20,5 @@ RUN chmod +x /usr/local/bin/*.sh
 ENV KILL_SWITCH=off
 
 ENTRYPOINT [ "entry.sh" ]
+
+LABEL org.opencontainers.image.description="OpenVPN client container that routes Docker traffic through a VPN tunnel, enabling secure networking for other containers with leak protection (kill switch)."
