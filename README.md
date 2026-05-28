@@ -4,7 +4,7 @@ Forked from https://github.com/wfg/docker-openvpn-client to meet custom needs.
 
 ## What is this and what does it do?
 [`ghcr.io/atallo/docker-openvpn-client`](https://github.com/users/atallo/packages/container/package/docker-openvpn-client) is a containerized OpenVPN client.
-It has a kill switch built with `nftables` that kills Internet connectivity to the container if the VPN tunnel goes down for any reason.
+It has a kill switch built with `nftables` that kills Internet connectivity to the container if the VPN tunnel goes down for any reason. The kill switch needs a host that exposes netfilter to the container; set `KILL_SWITCH=off` on environments that don't (for example, an unprivileged LXC).
 
 This image requires you to supply the necessary OpenVPN configuration file(s).
 Because of this, any VPN provider should work.
@@ -74,7 +74,6 @@ services:
 | `CONFIG_FILE` | | The OpenVPN configuration file or search pattern. If unset, a random `.conf` or `.ovpn` file will be selected. |
 | `KILL_SWITCH` | `on` | Whether or not to enable the kill switch. Set to any "truthy" value[1] to enable. |
 | `PORT_FORWARDS` | | Forward one or more ports into the VPN. Space/comma-separated entries of the form `<proto>:<listen_port>:<dest_ip>[:<dest_port>]` where `proto` is `tcp`, `udp`, or `both`. See [Port forwarding into the VPN](#port-forwarding-into-the-vpn). |
-| `VPN_INTERFACE` | `tun0` | Interface used for the masquerade rule of the port forwarding. Defaults to OpenVPN's `$dev` (usually `tun0`). |
 
 [1] "Truthy" values in this context are the following: `true`, `t`, `yes`, `y`, `1`, `on`, `enable`, or `enabled`.
 
@@ -87,8 +86,11 @@ Regardless of whether or not you're using the kill switch, the entrypoint script
 Compose has support for [Docker secrets](https://docs.docker.com/engine/swarm/secrets/#use-secrets-in-compose).
 See the [Compose file](docker-compose.yml) in this repository for example usage of passing proxy credentials as Docker secrets.
 
+##### Configuration file handling
+So that the container behaves the same regardless of what your `.ovpn` contains, the entrypoint runs OpenVPN on a sanitized copy of your configuration file. It always strips the directives it manages itself — `up`, `down`, `route-up`, and `script-security` — and adds its own on the command line where needed (for example for the kill switch). When credentials are provided via `VPN_USERNAME`/`VPN_PASSWORD` or `AUTH_SECRET`, any `auth-user-pass` line in the config is stripped too, so the supplied credentials always win. Your original file under `/config` is never modified.
+
 ### Port forwarding into the VPN
-You can forward one or more ports from the container to a host that lives *behind* the VPN tunnel (for example, reaching an RDP machine on the remote network). This is handled by `portforward.sh` using **nftables** (the native `nft` command) and is driven entirely from `docker-compose` through the `PORT_FORWARDS` variable.
+You can forward one or more ports from the container to a host that lives *behind* the VPN tunnel (for example, reaching an RDP machine on the remote network). This is handled by `portforward.sh` using **userspace `socat` relays**, driven entirely from `docker-compose` through the `PORT_FORWARDS` variable. Because it is plain userspace forwarding, it needs no netfilter, no DNAT/masquerade and no `ip_forward`, so it works in any environment (including unprivileged LXC and other runtimes where the kernel does not expose nf_tables to the container).
 
 Each forward is written as `<proto>:<listen_port>:<dest_ip>[:<dest_port>]`:
 
@@ -96,21 +98,17 @@ Each forward is written as `<proto>:<listen_port>:<dest_ip>[:<dest_port>]`:
 - `dest_port` is optional and defaults to `listen_port`.
 - Multiple forwards are separated by spaces or commas.
 
-For example, to forward TCP+UDP 3389 to a machine at `10.160.150.220` behind the VPN:
+For example, to forward TCP+UDP 3389 to a machine at `192.168.0.10` behind the VPN:
 
 ```yaml
     environment:
-      - PORT_FORWARDS=both:3389:10.160.150.220
-    sysctls:
-      - net.ipv4.ip_forward=1
+      - PORT_FORWARDS=both:3389:192.168.0.10
     ports:
       - 3389:3389/tcp
       - 3389:3389/udp
 ```
 
-Setting `PORT_FORWARDS` is all that is required; the entrypoint installs the rules itself before starting OpenVPN, so the `.ovpn` file does not need editing. Two supporting settings are needed for traffic to actually route end to end. The `net.ipv4.ip_forward=1` sysctl enables forwarding; it is set via the `sysctls:` key because most container runtimes mount `/proc/sys` read-only, which prevents the container from enabling it itself. And the listen port has to reach the container, so publish it with `ports:` (as shown) or connect from a container that shares this network stack.
-
-The rules are rebuilt on startup, so they never pile up. Traffic leaving through the VPN interface (`VPN_INTERFACE`, defaulting to OpenVPN's `$dev`, usually `tun0`) is masqueraded so replies from the destination return correctly. Only IPv4 destinations are supported.
+Setting `PORT_FORWARDS` is all that is required; the entrypoint starts the relays itself, so the `.ovpn` file does not need editing. The only supporting requirement is that the listen port has to reach the container, so publish it with `ports:` (as shown) or connect from a container that shares this network stack. A relay's outbound traffic goes to the destination over the VPN, the same as any other connection from the container.
 
 ### Using with other containers
 Once you have your `openvpn-client` container up and running, you can tell other containers to use `openvpn-client`'s network stack which gives them the ability to utilize the VPN tunnel.

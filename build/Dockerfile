@@ -6,6 +6,7 @@ RUN apk add --no-cache \
               nftables \
               openvpn \
               python3 \
+              socat \
               tzdata \
               curl \
     && rm -f  /usr/sbin/sendmail \

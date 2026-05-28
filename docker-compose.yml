@@ -17,15 +17,15 @@ services:
       - VPN_USERNAME=myuser
       - VPN_PASSWORD=mypassword
       # - TOTP_KEY=ABCD1234...
-      # Port forwarding into the VPN. Set up automatically (nftables) when present;
-      # no need to edit the .ovpn file. Format:
+      # The kill switch uses nftables and needs a host that exposes netfilter to
+      # the container. Set it to off on environments that don't (e.g. unprivileged
+      # LXC), where port forwarding still works because it uses userspace socat.
+      # - KILL_SWITCH=off
+      # Port forwarding into the VPN, handled with userspace socat (no netfilter,
+      # no ip_forward, works anywhere). No need to edit the .ovpn file. Format:
       #   <proto>:<listen_port>:<dest_ip>[:<dest_port>], space/comma separated.
       # proto = tcp | udp | both. See README for details.
-      - PORT_FORWARDS=both:3389:10.160.150.220
-    # Required for the port forwarding to route. Many runtimes mount /proc/sys
-    # read-only, so this must be set here rather than from inside the container.
-    sysctls:
-      - net.ipv4.ip_forward=1
+      - PORT_FORWARDS=both:3389:192.168.0.10
     ports:
       - 3389:3389/tcp
       - 3389:3389/udp
