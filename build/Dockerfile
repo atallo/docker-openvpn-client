@@ -3,9 +3,10 @@ FROM alpine:3.23
 RUN apk add --no-cache \
               bash \
               bind-tools \
+              iproute2 \
               nftables \
+              oath-toolkit-oathtool \
               openvpn \
-              python3 \
               socat \
               tzdata \
               curl \
@@ -14,8 +15,8 @@ RUN apk add --no-cache \
 
 COPY . /usr/local/bin
 
-RUN chmod +x /usr/local/bin/*.sh /usr/local/bin/*.py
+RUN chmod +x /usr/local/bin/*.sh
 
-ENV KILL_SWITCH=on
+ENV KILL_SWITCH=off
 
 ENTRYPOINT [ "entry.sh" ]

@@ -66,14 +66,17 @@ services:
 | Variable | Default (blank is unset) | Description |
 | --- | --- | --- |
 | `TZ` | | Timezone information. |
+| `CONFIG_FILE` | | **Required.** The OpenVPN configuration file (name or glob) to use, searched within `/config`. The container will not start if this is unset or matches no file. |
+| `REMOTE_IP` | | If set, overrides the address in every `remote` line of the config (port and protocol are kept). Lets you pin the connection endpoint without editing the `.ovpn`. |
 | `ALLOWED_SUBNETS` | | A list of one or more comma-separated subnets (e.g. `192.168.0.0/24,192.168.1.0/24`) to allow outside of the VPN tunnel. |
-| `VPN_USERNAME` | | VPN username for `--auth-user-pass`. Set directly from `docker-compose` as an alternative to `AUTH_SECRET`. |
-| `VPN_PASSWORD` | | VPN password that goes with `VPN_USERNAME`. If `TOTP_KEY` is also set, the current TOTP code is appended automatically. |
+| `AUTH_USERNAME` | | VPN username for `--auth-user-pass`. Set directly from `docker-compose` as an alternative to `AUTH_SECRET`. |
+| `AUTH_PASSWORD` | | VPN password that goes with `AUTH_USERNAME`. If `AUTH_TOTP_KEY` is also set, the current TOTP code is appended automatically. |
 | `AUTH_SECRET` | | Docker secret that contains the credentials for accessing the VPN (first line username, second line password). |
-| `TOTP_KEY` | | TOTP key used as 2FA for accessing the VPN. Appended to the password. |
-| `CONFIG_FILE` | | The OpenVPN configuration file or search pattern. If unset, a random `.conf` or `.ovpn` file will be selected. |
-| `KILL_SWITCH` | `on` | Whether or not to enable the kill switch. Set to any "truthy" value[1] to enable. |
-| `PORT_FORWARDS` | | Forward one or more ports into the VPN. Space/comma-separated entries of the form `<proto>:<listen_port>:<dest_ip>[:<dest_port>]` where `proto` is `tcp`, `udp`, or `both`. See [Port forwarding into the VPN](#port-forwarding-into-the-vpn). |
+| `AUTH_TOTP_KEY` | | TOTP key (base32) used as 2FA. The current code is appended to the password. Computed with `oathtool` (SHA1, 6 digits, 30s). |
+| `KILL_SWITCH` | `off` | Whether to enable the kill switch. Set to any "truthy" value[1] to enable. Needs a host that exposes netfilter (nftables) to the container. |
+| `PORT_FORWARDS` | | Forward one or more ports into the VPN. Space/comma-separated entries of the form `<proto>:<listen_port>:<dest>[:<dest_port>]` where `proto` is `tcp`, `udp`, or `both`, and `<dest>` is an IP or hostname. See [Port forwarding into the VPN](#port-forwarding-into-the-vpn). |
+| `PORT_FORWARDS_DNS` | | DNS server used to resolve hostnames in `PORT_FORWARDS` (e.g. the VPN's own DNS). If unset, the default resolver is used. |
+| `POST_UP_COMMAND` | | A command run (via `sh -c`) once the VPN tunnel is up. Can be anything from a simple `curl` to a more complex script. |
 
 [1] "Truthy" values in this context are the following: `true`, `t`, `yes`, `y`, `1`, `on`, `enable`, or `enabled`.
 
@@ -87,14 +90,15 @@ Compose has support for [Docker secrets](https://docs.docker.com/engine/swarm/se
 See the [Compose file](docker-compose.yml) in this repository for example usage of passing proxy credentials as Docker secrets.
 
 ##### Configuration file handling
-So that the container behaves the same regardless of what your `.ovpn` contains, the entrypoint runs OpenVPN on a sanitized copy of your configuration file. It always strips the directives it manages itself — `up`, `down`, `route-up`, and `script-security` — and adds its own on the command line where needed (for example for the kill switch). When credentials are provided via `VPN_USERNAME`/`VPN_PASSWORD` or `AUTH_SECRET`, any `auth-user-pass` line in the config is stripped too, so the supplied credentials always win. Your original file under `/config` is never modified.
+So that the container behaves the same regardless of what your `.ovpn` contains, the entrypoint runs OpenVPN on a sanitized copy of your configuration file. It always strips the directives it manages itself — `up`, `down`, `route-up`, and `script-security` — and adds its own on the command line where needed (for example for the kill switch). When credentials are provided via `AUTH_USERNAME`/`AUTH_PASSWORD` or `AUTH_SECRET`, any `auth-user-pass` line in the config is stripped too, so the supplied credentials always win. Your original file under `/config` is never modified.
 
 ### Port forwarding into the VPN
 You can forward one or more ports from the container to a host that lives *behind* the VPN tunnel (for example, reaching an RDP machine on the remote network). This is handled by `portforward.sh` using **userspace `socat` relays**, driven entirely from `docker-compose` through the `PORT_FORWARDS` variable. Because it is plain userspace forwarding, it needs no netfilter, no DNAT/masquerade and no `ip_forward`, so it works in any environment (including unprivileged LXC and other runtimes where the kernel does not expose nf_tables to the container).
 
-Each forward is written as `<proto>:<listen_port>:<dest_ip>[:<dest_port>]`:
+Each forward is written as `<proto>:<listen_port>:<dest>[:<dest_port>]`:
 
 - `proto` is `tcp`, `udp`, or `both` (both = tcp and udp).
+- `<dest>` is the target behind the VPN: an IP address **or a hostname**.
 - `dest_port` is optional and defaults to `listen_port`.
 - Multiple forwards are separated by spaces or commas.
 
@@ -108,7 +112,23 @@ For example, to forward TCP+UDP 3389 to a machine at `192.168.0.10` behind the V
       - 3389:3389/udp
 ```
 
-Setting `PORT_FORWARDS` is all that is required; the entrypoint starts the relays itself, so the `.ovpn` file does not need editing. The only supporting requirement is that the listen port has to reach the container, so publish it with `ports:` (as shown) or connect from a container that shares this network stack. A relay's outbound traffic goes to the destination over the VPN, the same as any other connection from the container.
+When `<dest>` is a hostname it is resolved with `dig` after the tunnel is up. If the name is only known to the VPN's own DNS, point `PORT_FORWARDS_DNS` at that server and it will be used for the lookup:
+
+```yaml
+    environment:
+      - PORT_FORWARDS=both:3389:rdp.internal
+      - PORT_FORWARDS_DNS=10.174.123.50
+```
+
+Setting `PORT_FORWARDS` is all that is required; the entrypoint starts the relays itself once the tunnel is up, so the `.ovpn` file does not need editing. The only other requirement is that the listen port reaches the container, so publish it with `ports:` (as shown) or connect from a container that shares this network stack.
+
+### Running a command when the VPN is up
+Set `POST_UP_COMMAND` to run a command (via `sh -c`) once the tunnel is up — anything from a heartbeat ping to a more involved script. It runs inside the container, so its traffic goes through the VPN:
+
+```yaml
+    environment:
+      - POST_UP_COMMAND=curl -fsS https://example.com/notify
+```
 
 ### Using with other containers
 Once you have your `openvpn-client` container up and running, you can tell other containers to use `openvpn-client`'s network stack which gives them the ability to utilize the VPN tunnel.
@@ -166,18 +186,6 @@ docker inspect --format '{{json .State.Health}}' openvpn-client
 
 ### Troubleshooting
 #### VPN authentication
-Your OpenVPN configuration file may not come with authentication baked in.
-To provide OpenVPN the necessary credentials, create a file (any name will work, but this example will use `credentials.txt`) next to the OpenVPN configuration file with your username on the first line and your password on the second line.
+Your OpenVPN configuration file may not come with authentication baked in. The recommended way to provide credentials is through the environment variables `AUTH_USERNAME` and `AUTH_PASSWORD` (or a Docker secret via `AUTH_SECRET`), set from `docker-compose`. When these are set, the entrypoint supplies them to OpenVPN and ignores any `auth-user-pass` line in your config, so you do not need to edit the configuration file. If your provider requires 2FA, set `AUTH_TOTP_KEY` (base32) as well and the current code is appended to the password.
 
-For example:
-```
-vpn_username
-vpn_password
-```
-
-In the OpenVPN configuration file, add the following line:
-```
-auth-user-pass credentials.txt
-```
-
-This will tell OpenVPN to read `credentials.txt` whenever it needs credentials.
+If you would rather keep credentials in the config the traditional way instead of using the variables above, create a file (for example `credentials.txt`) next to the configuration file with your username on the first line and your password on the second, and reference it from the config with `auth-user-pass credentials.txt`. This is used only when no credential variables are set.
