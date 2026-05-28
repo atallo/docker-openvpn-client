@@ -4,7 +4,7 @@ Forked from https://github.com/wfg/docker-openvpn-client to meet custom needs.
 
 ## What is this and what does it do?
 [`ghcr.io/atallo/docker-openvpn-client`](https://github.com/users/atallo/packages/container/package/docker-openvpn-client) is a containerized OpenVPN client.
-It has a kill switch built with `iptables` that kills Internet connectivity to the container if the VPN tunnel goes down for any reason.
+It has a kill switch built with `nftables` that kills Internet connectivity to the container if the VPN tunnel goes down for any reason.
 
 This image requires you to supply the necessary OpenVPN configuration file(s).
 Because of this, any VPN provider should work.
@@ -67,8 +67,10 @@ services:
 | --- | --- | --- |
 | `TZ` | | Timezone information. |
 | `ALLOWED_SUBNETS` | | A list of one or more comma-separated subnets (e.g. `192.168.0.0/24,192.168.1.0/24`) to allow outside of the VPN tunnel. |
-| `AUTH_SECRET` | | Docker secret that contains the credentials for accessing the VPN. |
-| `TOTP_KEY` | | TOTP key used as 2FA for accessing the VPN. |
+| `VPN_USERNAME` | | VPN username for `--auth-user-pass`. Set directly from `docker-compose` as an alternative to `AUTH_SECRET`. |
+| `VPN_PASSWORD` | | VPN password that goes with `VPN_USERNAME`. If `TOTP_KEY` is also set, the current TOTP code is appended automatically. |
+| `AUTH_SECRET` | | Docker secret that contains the credentials for accessing the VPN (first line username, second line password). |
+| `TOTP_KEY` | | TOTP key used as 2FA for accessing the VPN. Appended to the password. |
 | `CONFIG_FILE` | | The OpenVPN configuration file or search pattern. If unset, a random `.conf` or `.ovpn` file will be selected. |
 | `KILL_SWITCH` | `on` | Whether or not to enable the kill switch. Set to any "truthy" value[1] to enable. |
 | `PORT_FORWARDS` | | Forward one or more ports into the VPN. Space/comma-separated entries of the form `<proto>:<listen_port>:<dest_ip>[:<dest_port>]` where `proto` is `tcp`, `udp`, or `both`. See [Port forwarding into the VPN](#port-forwarding-into-the-vpn). |
@@ -86,7 +88,7 @@ Compose has support for [Docker secrets](https://docs.docker.com/engine/swarm/se
 See the [Compose file](docker-compose.yml) in this repository for example usage of passing proxy credentials as Docker secrets.
 
 ### Port forwarding into the VPN
-You can forward one or more ports from the container to a host that lives *behind* the VPN tunnel (for example, reaching an RDP machine on the remote network). This is handled by `portforward.sh` using **nftables** (the modern `nft` command) and is driven entirely from `docker-compose` through the `PORT_FORWARDS` variable.
+You can forward one or more ports from the container to a host that lives *behind* the VPN tunnel (for example, reaching an RDP machine on the remote network). This is handled by `portforward.sh` using **nftables** (the native `nft` command) and is driven entirely from `docker-compose` through the `PORT_FORWARDS` variable.
 
 Each forward is written as `<proto>:<listen_port>:<dest_ip>[:<dest_port>]`:
 
@@ -99,23 +101,16 @@ For example, to forward TCP+UDP 3389 to a machine at `10.160.150.220` behind the
 ```yaml
     environment:
       - PORT_FORWARDS=both:3389:10.160.150.220
+    sysctls:
+      - net.ipv4.ip_forward=1
     ports:
       - 3389:3389/tcp
       - 3389:3389/udp
 ```
 
-Setting `PORT_FORWARDS` is all that is required. The entrypoint does the rest automatically: it enables `net.ipv4.ip_forward`, and it runs OpenVPN on a copy of your configuration file with `portforward.sh` wired in as the `up` script. Any `up` or `script-security` directives already present in your `.ovpn` are stripped from that copy and ignored, so **you do not need to edit your configuration file**. Your original file under `/config` is left untouched.
+Setting `PORT_FORWARDS` is all that is required; the entrypoint installs the rules itself before starting OpenVPN, so the `.ovpn` file does not need editing. Two supporting settings are needed for traffic to actually route end to end. The `net.ipv4.ip_forward=1` sysctl enables forwarding; it is set via the `sysctls:` key because most container runtimes mount `/proc/sys` read-only, which prevents the container from enabling it itself. And the listen port has to reach the container, so publish it with `ports:` (as shown) or connect from a container that shares this network stack.
 
-The only thing you still need to do is make the listen port reachable, by publishing it with `ports:` (as shown) or by connecting from a container that shares this network stack.
-
-On each (re)connect the script rebuilds its own `ip nat` table from scratch, so rules never pile up. It masquerades traffic leaving through the VPN interface (`VPN_INTERFACE`, defaulting to OpenVPN's `$dev`) so replies from the destination return correctly. Only IPv4 destinations are supported.
-
-If your container runtime does not allow enabling `ip_forward` from inside the container, set it from Compose instead:
-
-```yaml
-    sysctls:
-      - net.ipv4.ip_forward=1
-```
+The rules are rebuilt on startup, so they never pile up. Traffic leaving through the VPN interface (`VPN_INTERFACE`, defaulting to OpenVPN's `$dev`, usually `tun0`) is masqueraded so replies from the destination return correctly. Only IPv4 destinations are supported.
 
 ### Using with other containers
 Once you have your `openvpn-client` container up and running, you can tell other containers to use `openvpn-client`'s network stack which gives them the ability to utilize the VPN tunnel.

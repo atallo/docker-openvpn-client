@@ -3,8 +3,6 @@ FROM alpine:3.23
 RUN apk add --no-cache \
               bash \
               bind-tools \
-              iptables \
-              ip6tables \
               nftables \
               openvpn \
               python3 \
