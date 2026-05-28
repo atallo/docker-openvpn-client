@@ -39,12 +39,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata (tags, labels)
+      - name: Extract metadata (tags, labels, annotations)
         id: meta
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          labels: |
+          # GHCR reads the description of a multi-arch image from the OCI
+          # annotations on the manifest list (index), not from labels. The env
+          # below pushes the annotations all the way up to that index level.
+          annotations: |
             org.opencontainers.image.description=OpenVPN client container with userspace port forwarding (socat) and an optional nftables kill switch.
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
@@ -53,6 +56,8 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
 
       - name: Build and push
         uses: docker/build-push-action@v7
@@ -63,9 +68,10 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
           # Disable provenance/SBOM attestations: they show up in the manifest
           # list as "unknown/unknown" entries on GHCR and stop its UI from
-          # reading the description label. Re-enable if you need SLSA provenance.
+          # reading the description. Re-enable if you need SLSA provenance.
           provenance: false
           sbom: false
           cache-from: type=gha
